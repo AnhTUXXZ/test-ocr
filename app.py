@@ -1,7 +1,6 @@
 import os
 import cv2
 import numpy as np
-import urllib.request
 from flask import Flask, jsonify, request
 from rapidocr_onnxruntime import RapidOCR
 
@@ -50,31 +49,21 @@ def fast_ocr_process(img, ocr_engine):
 
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({"message": "API OCR đang hoạt động. Truy cập /test để chạy thử."})
+    return jsonify({"message": "API OCR đang hoạt động. Hãy cấu hình bot gửi POST request chứa ảnh tới endpoint /ocr_upload."})
 
-@app.route('/test', methods=['GET'])
-def test_ocr():
-    """Route test quét OCR trực tiếp từ URL ảnh"""
-    image_url = "https://mywebip.ddns.net/img.png"
-    
+@app.route('/ocr_upload', methods=['POST'])
+def ocr_upload():
+    """Route nhận ảnh trực tiếp từ Tool Tiktok Lite gửi lên"""
     try:
-        # Cấu hình header để tránh bị server nguồn chặn (403 Forbidden)
-        req = urllib.request.Request(
-            image_url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        )
-        
-        # Tải ảnh về RAM
-        with urllib.request.urlopen(req, timeout=10) as response:
-            image_bytes = bytearray(response.read())
-            
-        image_array = np.asarray(image_bytes, dtype=np.uint8)
+        # Đọc dữ liệu ảnh nhị phân từ request
+        image_bytes = request.data
+        image_array = np.frombuffer(image_bytes, dtype=np.uint8)
         
         # Decode ảnh bằng OpenCV
         img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
         
         if img is None:
-            return jsonify({"status": "error", "message": "Không thể giải mã hình ảnh từ URL."}), 400
+            return jsonify({"status": "error", "message": "Không thể giải mã hình ảnh từ byte array."}), 400
             
         # Đưa vào hàm OCR xử lý
         results = fast_ocr_process(img, ocr_engine)
