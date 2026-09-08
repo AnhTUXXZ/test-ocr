@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import gc
+import datetime
 from flask import Flask, jsonify, request
 from rapidocr_onnxruntime import RapidOCR
 
@@ -74,8 +75,10 @@ def home():
 @app.route('/ocr_upload', methods=['POST'])
 def ocr_upload():
     """Route nhận ảnh trực tiếp từ Tool Tiktok Lite gửi lên"""
-    print("\n" + "="*50)
-    print(">>> [YÊU CẦU MỚI] Đã nhận một request quét ảnh từ Tool")
+    time_received = datetime.datetime.now()
+    
+    print("\n" + "="*60)
+    print(f">>> [YÊU CẦU MỚI] Đã nhận ảnh vào lúc: {time_received.strftime('%H:%M:%S - %d/%m/%Y')}")
     
     # DỌN RAM NGAY TRƯỚC KHI XỬ LÝ ẢNH MỚI
     gc.collect() 
@@ -99,13 +102,19 @@ def ocr_upload():
         # Đưa vào hàm OCR xử lý
         print(f"[XỬ LÝ] Bắt đầu đẩy ảnh ({img.shape[1]}x{img.shape[0]}) qua model AI...")
         results = fast_ocr_process(img, ocr_engine)
-        print(f"[XỬ LÝ] Hoàn tất quét OCR. Tìm thấy {len(results)} khối chữ hợp lệ.")
+        
+        time_finished = datetime.datetime.now()
+        processing_time = (time_finished - time_received).total_seconds()
+        
+        print(f"[XỬ LÝ] Quét được lúc: {time_finished.strftime('%H:%M:%S')}")
+        print(f"[KẾT QUẢ] Tốn {processing_time:.2f} giây. Tìm thấy {len(results)} khối chữ hợp lệ.")
         
         response_data = {
             "status": "success",
             "image_size": {"width": img.shape[1], "height": img.shape[0]},
             "text_count": len(results),
-            "data": results
+            "data": results,
+            "processing_time_seconds": processing_time
         }
         
         # ==============================================================
@@ -118,7 +127,7 @@ def ocr_upload():
         gc.collect() 
         
         print_ram_usage("SAU KHI XỬ LÝ & DỌN DẸP")
-        print("="*50 + "\n")
+        print("="*60 + "\n")
         
         return jsonify(response_data)
         
