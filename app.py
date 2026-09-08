@@ -1,14 +1,30 @@
 import os
 import cv2
 import numpy as np
+import gc
 from flask import Flask, jsonify, request
 from rapidocr_onnxruntime import RapidOCR
 
 app = Flask(__name__)
 
+# =====================================================================
+# --- HÀM HỖ TRỢ ĐỌC RAM TRỰC TIẾP TỪ HỆ THỐNG LINUX (RENDER) ---
+# =====================================================================
+def print_ram_usage(step_name):
+    try:
+        with open('/proc/self/status') as f:
+            for line in f:
+                if 'VmRSS' in line:
+                    ram_mb = int(line.split()[1]) / 1024
+                    print(f"[{step_name}] RAM đang dùng: {ram_mb:.2f} MB")
+                    return
+    except:
+        print(f"[{step_name}] Không thể đọc dung lượng RAM.")
+
 # Khởi tạo Engine OCR một lần khi chạy server để tối ưu hiệu suất
 print("Đang khởi tạo model RapidOCR...")
 ocr_engine = RapidOCR()
+print_ram_usage("SAU KHI KHỞI TẠO MODEL")
 
 def fast_ocr_process(img, ocr_engine):
     """Hàm xử lý OCR siêu tốc được trích xuất từ source gốc"""
@@ -45,6 +61,10 @@ def fast_ocr_process(img, ocr_engine):
                 "score": round(score, 4)
             })
             
+    # XÓA BIẾN CỤC BỘ BÊN TRONG HÀM QUÉT ĐỂ ÉP GIẢI PHÓNG RAM
+    del gray_img
+    del raw_results
+            
     return formatted_results
 
 @app.route('/', methods=['GET'])
@@ -54,28 +74,58 @@ def home():
 @app.route('/ocr_upload', methods=['POST'])
 def ocr_upload():
     """Route nhận ảnh trực tiếp từ Tool Tiktok Lite gửi lên"""
+    print("\n" + "="*50)
+    print(">>> [YÊU CẦU MỚI] Đã nhận một request quét ảnh từ Tool")
+    
+    # DỌN RAM NGAY TRƯỚC KHI XỬ LÝ ẢNH MỚI
+    gc.collect() 
+    print_ram_usage("TRƯỚC KHI XỬ LÝ")
+    
     try:
         # Đọc dữ liệu ảnh nhị phân từ request
         image_bytes = request.data
+        img_size_kb = len(image_bytes) / 1024
+        print(f"[THÔNG TIN] Kích thước ảnh tải lên: {img_size_kb:.2f} KB")
+        
         image_array = np.frombuffer(image_bytes, dtype=np.uint8)
         
         # Decode ảnh bằng OpenCV
         img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
         
         if img is None:
+            print("[LỖI] Giải mã ảnh thất bại.")
             return jsonify({"status": "error", "message": "Không thể giải mã hình ảnh từ byte array."}), 400
             
         # Đưa vào hàm OCR xử lý
+        print(f"[XỬ LÝ] Bắt đầu đẩy ảnh ({img.shape[1]}x{img.shape[0]}) qua model AI...")
         results = fast_ocr_process(img, ocr_engine)
+        print(f"[XỬ LÝ] Hoàn tất quét OCR. Tìm thấy {len(results)} khối chữ hợp lệ.")
         
-        return jsonify({
+        response_data = {
             "status": "success",
             "image_size": {"width": img.shape[1], "height": img.shape[0]},
             "text_count": len(results),
             "data": results
-        })
+        }
+        
+        # ==============================================================
+        # ÉP XÓA TOÀN BỘ DATA ẢNH & KẾT QUẢ RỒI DỌN RÁC NGAY LẬP TỨC
+        # ==============================================================
+        del image_bytes
+        del image_array
+        del img
+        del results
+        gc.collect() 
+        
+        print_ram_usage("SAU KHI XỬ LÝ & DỌN DẸP")
+        print("="*50 + "\n")
+        
+        return jsonify(response_data)
         
     except Exception as e:
+        print(f"[LỖI NGHIÊM TRỌNG] {str(e)}")
+        # Cứu hộ RAM nếu xảy ra lỗi giữa chừng
+        gc.collect()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
